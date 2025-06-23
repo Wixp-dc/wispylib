@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from socket import gethostbyname, socket, timeout
 import tldextract
-
+#black cock
 urls = set()
 lock = Lock()
 
