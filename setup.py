@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='wispylib',
-    version='0.1.8',
+    version='0.2.0',
     description='A link scraping and redirect-checking utility',
     author='Ryu saiki',
     author_email='you@none.com',
