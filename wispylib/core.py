@@ -1,21 +1,45 @@
 import requests as req
 from bs4 import BeautifulSoup, Tag
-from urllib.parse import urljoin
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
+from socket import gethostbyname, socket, timeout
+import tldextract
 
 urls = set()
 lock = Lock()
 
-http = ""  # holds contents of http.out after cringio
+http = ""
 https = ""
 
-def getip(uri):
-    parsed = urlparse(uri)
-    host = parsed.hostname
-    ip = gethostbyname(host)
-    return ip
+def wispscan(ports, urls):
+    def scan_port(ip, port):
+        try:
+            with socket() as s:
+                s.settimeout(0.2)
+                s.connect((ip, port))
+                return True
+        except (timeout, ConnectionRefusedError, OSError):
+            return False
+
+    def worker(url):
+        try:
+            parsed_url = urlparse(url)
+            ip = gethostbyname(parsed_url.hostname)
+            open_ports = [port for port in ports if scan_port(ip, port)]
+            if open_ports:
+                with lock:
+                    with open("ports.out", "a") as port_file:
+                        for port in open_ports:
+                            port_file.write(f"{ip}:{port}\n")
+        except Exception as e:
+            print(f"[ERROR] Port scan failed for {url}: {e}")
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(worker, url) for url in urls]
+        for f in futures:
+            f.result()
+
 def get_links(URL):
     found = set()
     try:
@@ -31,7 +55,6 @@ def get_links(URL):
         print(f"[ERROR] {URL}: {e}")
     return found
 
-
 def test_redirects(URL):
     redirects = set()
     try:
@@ -41,7 +64,6 @@ def test_redirects(URL):
     except Exception as e:
         print(f"[ERROR] Redirects for {URL}: {e}")
     return redirects
-
 
 def save_links(http_path="http.out", https_path="https.out", urls_set=None):
     if urls_set is None:
@@ -56,7 +78,6 @@ def save_links(http_path="http.out", https_path="https.out", urls_set=None):
             elif link.startswith("https://"):
                 https_file.write(formatted)
 
-
 def _send_webhook(url, data):
     try:
         headers = {"Content-Type": "text/plain"}
@@ -66,56 +87,6 @@ def _send_webhook(url, data):
     except Exception as e:
         print(f"[ERROR] Sending to webhook {url}: {e}")
 
-
-def cringio(start_url,
-            max_workers=10,
-            scan_loops=1,
-            http_webhook=None,
-            https_webhook=None,
-            webhook=None):
-    """
-    If webhook is set, both http and https contents are sent there.
-    Otherwise, sends http and https separately if their webhook URLs are provided.
-    """
-    global urls, http, https
-
-    def worker(url):
-        found = get_links(url)
-        redirs = test_redirects(url)
-        with lock:
-            urls.update(found)
-            urls.update(redirs)
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
-        for _ in range(scan_loops):
-            futures.append(executor.submit(worker, start_url))
-        for f in futures:
-            f.result()
-
-    save_links(urls_set=urls)
-
-    try:
-        with open("http.out", "r") as f:
-            http = f.read()
-    except FileNotFoundError:
-        http = ""
-
-    try:
-        with open("https.out", "r") as f:
-            https = f.read()
-    except FileNotFoundError:
-        https = ""
-
-    if webhook:
-        _send_webhook(webhook, http + "\n" + https)
-    else:
-        if http_webhook and http:
-            _send_webhook(http_webhook, http)
-        if https_webhook and https:
-            _send_webhook(https_webhook, https)
-
-
 def cringio_cli(start_url=None,
                 url_file=None,
                 max_workers=10,
@@ -123,11 +94,14 @@ def cringio_cli(start_url=None,
                 max_urls_from_file=None,
                 http_webhook=None,
                 https_webhook=None,
-                webhook=None):
-    """
-    CLI scanner loop — delay removed for full speed.
-    """
+                webhook=None,
+                sub_webhook=None,
+                ports_webhook=None,
+                ports=None):
     global urls, http, https
+
+    if ports is None:
+        ports = list(range(1, 20001))
 
     def worker(url):
         found = get_links(url)
@@ -180,6 +154,16 @@ def cringio_cli(start_url=None,
                         _send_webhook(http_webhook, http)
                     if https_webhook and https:
                         _send_webhook(https_webhook, https)
+
+                wispscan(ports, urls)
+
+                if ports_webhook:
+                    try:
+                        with open("ports.out", "r") as f:
+                            ports_data = f.read()
+                        _send_webhook(ports_webhook, ports_data)
+                    except FileNotFoundError:
+                        print("[ERROR] ports.out not found.")
 
                 if not infinite:
                     break
