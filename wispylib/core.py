@@ -1,6 +1,7 @@
 import requests as req
 from bs4 import BeautifulSoup, Tag
 from urllib.parse import urljoin
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
@@ -10,7 +11,11 @@ lock = Lock()
 http = ""  # holds contents of http.out after cringio
 https = ""
 
-
+def getip(uri):
+    parsed = urlparse(uri)
+    host = parsed.hostname
+    ip = gethostbyname(host)
+    return ip
 def get_links(URL):
     found = set()
     try:
